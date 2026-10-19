@@ -198,12 +198,13 @@ Edita las variables al inicio de `loopforge.sh`:
 
 ```bash
 VIDEO_SIZE="1280x720"     # Resolución del video
-VIDEO_FPS=25              # Frames por segundo
 VIDEO_CRF=30              # Calidad (menor = mejor, rango: 18-28)
 AUDIO_BITRATE="128k"      # Bitrate de audio AAC
 MIN_AUDIO_SECS=15         # Audios más cortos se filtran
 PARALLEL_JOBS=auto        # Se detecta automáticamente (CPU/RAM)
 ```
+
+> **Nota:** El renderizado usa 2fps automáticamente para imágenes estáticas (más rápido, mismo resultado en YouTube).
 
 ---
 

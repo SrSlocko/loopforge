@@ -31,13 +31,11 @@ TEST_MODE=0
 REMOVE_ORIGINAL=0
 PARALLEL_JOBS=2
 VIDEO_SIZE="1280x720"
-VIDEO_FPS=25
 VIDEO_CRF=30
 AUDIO_BITRATE="128k"
 MIN_AUDIO_SECS=15
-VERSION="7.0"
+VERSION="2.0"
 HAS_IMAGEMAGICK=0
-HAS_BC=0
 HAS_JQ=0
 HAS_UNRAR=0
 
@@ -99,37 +97,37 @@ show_help() {
     cat <<EOF
 ${COLORS[MAGENTA]}LOOPFORGE v${VERSION} - Generador de audio extendido para YouTube${COLORS[RESET]}
 
-${COLORS[CYAN]}DESCRIPCIÓN:${COLORS[RESET}
+${COLORS[CYAN]}DESCRIPCIÓN:${COLORS[RESET]}
   Extiende audios automáticamente usando pymusiclooper y genera videos
   con imagen fija listos para subir a YouTube.
 
-${COLORS[CYAN]}USO:${COLORS[RESET}
+${COLORS[CYAN]}USO:${COLORS[RESET]}
   loopforge <input> <minutos> [imagen_portada] [output] [opciones]
 
-${COLORS[CYAN]}ENTRADAS SOPORTADAS:${COLORS[RESET}
+${COLORS[CYAN]}ENTRADAS SOPORTADAS:${COLORS[RESET]}
   archivo.mp3          Audio individual
   ./carpeta/           Carpeta con audios
   archivo.zip/.rar     Archivo comprimido
   https://youtube.com  URL de video o playlist
 
-${COLORS[CYAN]}EJEMPLOS:${COLORS[RESET}
+${COLORS[CYAN]}EJEMPLOS:${COLORS[RESET]}
   loopforge cancion.mp3 60 cover.jpg
   loopforge ./musica 180 cover.jpg
   loopforge album.zip 30 cover.jpg
   loopforge "https://youtube.com/playlist?list=XXX" 60
   loopforge a.mp3 60 cover.jpg , b.mp3 30 cover2.jpg
 
-${COLORS[CYAN]}OPCIONES:${COLORS[RESET}
+${COLORS[CYAN]}OPCIONES:${COLORS[RESET]}
   -tester        Procesa solo el primer archivo (prueba rápida)
   -shutdown N    Apaga el PC N minutos después de terminar
   --help         Muestra esta ayuda
   --version      Muestra la versión
 
-${COLORS[CYAN]}DEPENDENCIAS:${COLORS[RESET}
+${COLORS[CYAN]}DEPENDENCIAS:${COLORS[RESET]}
   Requeridas:  ffmpeg, ffprobe, yt-dlp, pymusiclooper
   Opcionales:  ImageMagick, unrar, jq
 
-${COLORS[CYAN]}NOTAS:${COLORS[RESET}
+${COLORS[CYAN]}NOTAS:${COLORS[RESET]}
   • Los audios < ${MIN_AUDIO_SECS}s se mueven a ~/Music/Sonidos_Cortos
   • Los archivos duplicados se eliminan automáticamente
   • Los videos se generan en resolución ${VIDEO_SIZE}
@@ -149,7 +147,6 @@ show_version() {
 
 check_dependencies() {
     local required=("ffmpeg" "ffprobe" "yt-dlp" "pymusiclooper")
-    local optional=("magick" "unrar" "bc" "jq")
     local missing=()
 
     for dep in "${required[@]}"; do
@@ -167,7 +164,6 @@ check_dependencies() {
 
     # Verificar opcionales
     command -v magick >/dev/null 2>&1 && HAS_IMAGEMAGICK=1
-    command -v bc      >/dev/null 2>&1 && HAS_BC=1
     command -v jq      >/dev/null 2>&1 && HAS_JQ=1
     command -v unrar   >/dev/null 2>&1 && HAS_UNRAR=1
 
@@ -247,14 +243,16 @@ clean_archive_name() {
 get_dominant_color() {
     local image="$1" color
     if [ "$HAS_IMAGEMAGICK" -eq 1 ]; then
-        color=$(magick "$image" -resize 1x1! -format "%[hex:u]" info: 2>/dev/null)
+        color=$(magick "$image" -depth 8 -resize 1x1! -format "%[hex:u]" info: 2>/dev/null)
     elif [ "$HAS_IMAGEMAGICK" -eq 2 ]; then
-        color=$(convert "$image" -resize 1x1! -format "%[hex:u]" info: 2>/dev/null)
+        color=$(convert "$image" -depth 8 -resize 1x1! -format "%[hex:u]" info: 2>/dev/null)
     fi
     # Fallback con ffmpeg puro
     if [ -z "$color" ]; then
         color=$(ffmpeg -i "$image" -vf "scale=1:1" -frames:v 1 -f rawvideo -pix_fmt rgb24 - 2>/dev/null | xxd -p | head -c 6 | tr 'a-f' 'A-F')
     fi
+    # Extraer solo los primeros 6 hex chars (RRGGBB), ignorar alpha y profundidad extra
+    color="${color:0:6}"
     [ -z "$color" ] && color="000000"
     echo "$color"
 }
@@ -272,7 +270,7 @@ preprocess_cover() {
         bg=$(mktemp --suffix=.png 2>/dev/null || mktemp -t bg.png)
         # Fondo: escalar a cubrir 1280x720 + blur
         if ! $magick_cmd "$input" -colorspace sRGB \
-            -resize "${VIDEO_SIZE/x/}"'^' -gravity center \
+            -resize "${VIDEO_SIZE}^" -gravity center \
             -extent "$VIDEO_SIZE" -blur 0x12 "$bg" 2>/dev/null; then
             rm -f "$bg"
             # Fallback a ffmpeg si magick falla
@@ -402,12 +400,14 @@ process_audio() {
     # Intentar extender con pymusiclooper
     if ! pymusiclooper extend --path "$temp_wav" \
         --extended-length "$target_secs" --format MP3 \
-        --output-dir "$temp_dir" >/dev/null 2>&1; then
+        --output-dir "$temp_dir" \
+        --min-loop-duration 5 --max-loop-duration "$target_secs" 2>/dev/null; then
 
-        # Reintentar con parámetros ajustados
+        # Reintentar con parámetros más amplios
         if ! pymusiclooper extend --path "$temp_wav" \
             --extended-length "$target_secs" --format MP3 \
-            --output-dir "$temp_dir" --min-duration 10 --max-duration 60 >/dev/null 2>&1; then
+            --output-dir "$temp_dir" \
+            --min-loop-duration 2 --max-loop-duration "$((target_secs * 2))" 2>/dev/null; then
 
             rm -rf "$temp_dir"
             warn "Sin loop points para: $(basename "$input")"
@@ -469,15 +469,17 @@ generate_video() {
     # Obtener color dominante para el pad
     color=$(get_dominant_color "$processed_image")
 
+    # Para imágenes estáticas, 2fps es suficiente y 12x más rápido que 25fps
+    local render_fps=2
+    local gop_size=$((render_fps * 60))  # Keyframe cada 60s
+
     # Generar video
     start_time=$(date +%s)
     ffmpeg -hide_banner -loglevel error -nostdin -y \
         -loop 1 -framerate 1 -i "$processed_image" -i "$audio" \
-        -vf "scale=${w}:${h}:force_original_aspect_ratio=decrease:flags=neighbor,
-             pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:color=0x${color},
-             format=yuv420p,fps=${VIDEO_FPS}" \
+        -vf "scale=${w}:${h}:force_original_aspect_ratio=decrease:flags=neighbor,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:color=0x${color},format=yuv420p,fps=${render_fps}" \
         -c:v libx264 -preset ultrafast -crf ${VIDEO_CRF} -tune stillimage \
-        -g 250 -x264-params keyint=250:min-keyint=25:no-scenecut=1 \
+        -g "$gop_size" -x264-params "keyint=${gop_size}:min-keyint=$((gop_size/10)):no-scenecut=1" \
         -pix_fmt yuv420p \
         -c:a aac -b:a ${AUDIO_BITRATE} -shortest \
         -movflags +faststart \
@@ -485,14 +487,23 @@ generate_video() {
         "$output" 2>/dev/null &
     ffmpeg_pid=$!
 
-    # Spinner mientras renderiza
+    # Spinner mientras renderiza (solo en TTY, si no mostrar progreso cada 10s)
     local spinner=( '⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏' ) i=0
-    printf "${COLORS[YELLOW]}  Renderizando: %s " "$(basename "$output")" >&2
-    while kill -0 "$ffmpeg_pid" 2>/dev/null; do
-        printf "\r${COLORS[YELLOW]}  Renderizando: %s %s" "$(basename "$output")" "${spinner[i]}" >&2
-        i=$(( (i + 1) % 10 ))
-        sleep 0.1
-    done
+    if [ -t 2 ]; then
+        printf "${COLORS[YELLOW]}  Renderizando: %s " "$(basename "$output")" >&2
+        while kill -0 "$ffmpeg_pid" 2>/dev/null; do
+            printf "\r${COLORS[YELLOW]}  Renderizando: %s %s" "$(basename "$output")" "${spinner[i]}" >&2
+            i=$(( (i + 1) % 10 ))
+            sleep 0.1
+        done
+        printf "\r\033[K" >&2  # Limpiar línea del spinner
+    else
+        # Sin TTY: mostrar progreso cada 15 segundos
+        while kill -0 "$ffmpeg_pid" 2>/dev/null; do
+            sleep 15
+            kill -0 "$ffmpeg_pid" 2>/dev/null && echo "  Renderizando... ($(( $(date +%s) - start_time ))s)" >&2
+        done
+    fi
     wait "$ffmpeg_pid"
     local exit_code=$?
     elapsed=$(( $(date +%s) - start_time ))
@@ -508,7 +519,7 @@ generate_video() {
         fi
         return 0
     else
-        printf "\r${COLORS[RED]}  Error generando: %s${COLORS[RESET}\n" "$(basename "$output")" >&2
+        printf "\r${COLORS[RED]}  Error generando: %s${COLORS[RESET]}\n" "$(basename "$output")" >&2
         return 1
     fi
 }
@@ -537,7 +548,7 @@ process_file() {
     local file="$1" dir="$2" target_secs="$3" cover_image="$4" output_dir="$5" index="$6" total="$7"
     local relative_path base cleaned extended_file video_output
 
-    relative_path="${file#$dir/}"
+    relative_path="${file#"$dir"/}"
     base="${relative_path%.*}"
     cleaned=$(clean_filename "$base")
 
@@ -648,7 +659,11 @@ get_default_cover() {
     ffmpeg -hide_banner -loglevel error -y -i "$temp_video" -frames:v 1 -q:v 2 "$cover_output" 2>/dev/null || {
         error "No se pudo extraer el frame del video."
     }
-    [ -s "$cover_output" ] && echo "$cover_output" || error "Frame de portada inválido."
+    if [ -s "$cover_output" ]; then
+        echo "$cover_output"
+    else
+        error "Frame de portada inválido."
+    fi
 }
 
 # Procesa una URL (video individual o playlist de YouTube)
@@ -776,12 +791,16 @@ process_group() {
     if [[ "$input" == http* ]]; then
         :  # URL, dejar como está
     else
+        local original_input="$input"
         input=$(realpath "$input" 2>/dev/null)
-        [ ! -e "$input" ] && error "No existe: $input"
+        [ -z "$input" ] || [ ! -e "$input" ] && error "No existe: $original_input"
     fi
 
-    # Calcular duración objetivo
+    # Calcular duración objetivo (validar que sea numérico)
     local minutes="${args[1]}"
+    if ! [[ "$minutes" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+        error "Los minutos deben ser un número: '$minutes'"
+    fi
     if [ "$minutes" -eq 30 ]; then
         target_secs="1799.232"
     else
@@ -830,6 +849,7 @@ process_group() {
         cleaned=$(clean_filename "$base")
         output="$(dirname "$input")/${cleaned}.mp4"
         generate_video "$cover_image" "$tmp_audio" "$output"
+        local video_result=$?
     else
         error "Entrada no válida: $input"
     fi
@@ -839,11 +859,18 @@ process_group() {
 
     elapsed=$(( $(date +%s) - start_time ))
     separator
-    echo -e "${COLORS[GREEN]}  Resumen:${COLORS[RESET}"
-    echo -e "    Estado:   ${COLORS[GREEN]}✓ Completado${COLORS[RESET}"
+    if [ "${video_result:-0}" -eq 0 ]; then
+        echo -e "${COLORS[GREEN]}  Resumen:${COLORS[RESET]}"
+        echo -e "    Estado:   ${COLORS[GREEN]}✓ Completado${COLORS[RESET]}"
+    else
+        echo -e "${COLORS[RED]}  Resumen:${COLORS[RESET]}"
+        echo -e "    Estado:   ${COLORS[RED]}✗ Error generando video${COLORS[RESET]}"
+    fi
     echo -e "    Tiempo:   ${elapsed} segundos"
     echo -e "    Salida:   ${output:-${input}_extended}"
     separator
+    [ "${video_result:-0}" -ne 0 ] && return 1
+    return 0
 }
 
 # ============================================================================
@@ -860,19 +887,24 @@ main() {
     done
 
     header
+
+    # Validar argumentos ANTES de dependencias (mejor UX)
+    [ $# -lt 2 ] && error "Uso: $0 <input> <minutos> [imagen] [output] [opciones]
+  Usa --help para más información."
+
     check_dependencies
     detect_system_resources
     cleanup_tmp
 
     # Parsear flags
     local shutdown_minutes=""
-    if [[ "${@: -1}" == "-tester" ]]; then
+    if [[ "${*: -1}" == "-tester" ]]; then
         TEST_MODE=1
         set -- "${@:1:$(($#-1))}"
         progress "Modo tester activado (solo primer archivo)"
     fi
-    if [[ "${@: -2:1}" == "-shutdown" ]]; then
-        shutdown_minutes="${@: -1}"
+    if [[ "${*: -2:1}" == "-shutdown" ]]; then
+        shutdown_minutes="${*: -1}"
         set -- "${@:1:$(($#-2))}"
     fi
 
