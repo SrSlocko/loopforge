@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 # ============================================================================
-#  AUDIOLOOP - Extended Audio/Video Generator for YouTube  v7.0
+#  LOOPFORGE - Extended Audio/Video Generator for YouTube  v2.0
 # ============================================================================
 #  Extiende audios usando pymusiclooper y genera videos listos para YouTube
 #  a partir de archivos, carpetas, archivos comprimidos, URLs o playlists.
 #
 #  Uso:
-#    audioloop <input> <minutos> [imagen_portada] [output] [opciones]
+#    loopforge <input> <minutos> [imagen_portada] [output] [opciones]
 #
 #  Ejemplos:
-#    audioloop cancion.mp3 60 cover.jpg
-#    audioloop ./carpeta_musical 180 cover.jpg
-#    audioloop playlist.zip 30 cover.jpg
-#    audioloop "https://youtube.com/playlist?list=..." 60
-#    audioloop a.mp3 60 cover.jpg , b.mp3 30 cover2.jpg
+#    loopforge cancion.mp3 60 cover.jpg
+#    loopforge ./carpeta_musical 180 cover.jpg
+#    loopforge playlist.zip 30 cover.jpg
+#    loopforge "https://youtube.com/playlist?list=..." 60
+#    loopforge a.mp3 60 cover.jpg , b.mp3 30 cover2.jpg
 #
 #  Opciones:
 #    -tester      Procesa solo el primer archivo (modo prueba)
@@ -85,11 +85,11 @@ header() {
     separator
     if (( TEST_MODE )); then
         echo -e "${COLORS[MAGENTA]}  ╔══════════════════════════════════╗
-  ║   AUDIOLOOP TESTER v${VERSION}       ║
+  ║   LOOPFORGE TESTER v${VERSION}       ║
   ╚══════════════════════════════════╝${COLORS[RESET]}"
     else
         echo -e "${COLORS[MAGENTA]}  ╔══════════════════════════════════╗
-  ║   AUDIOLOOP PRO v${VERSION}           ║
+  ║   LOOPFORGE PRO v${VERSION}           ║
   ╚══════════════════════════════════╝${COLORS[RESET]}"
     fi
     separator
@@ -97,14 +97,14 @@ header() {
 
 show_help() {
     cat <<EOF
-${COLORS[MAGENTA]}AUDIOLOOP v${VERSION} - Generador de audio extendido para YouTube${COLORS[RESET}
+${COLORS[MAGENTA]}LOOPFORGE v${VERSION} - Generador de audio extendido para YouTube${COLORS[RESET]}
 
 ${COLORS[CYAN]}DESCRIPCIÓN:${COLORS[RESET}
   Extiende audios automáticamente usando pymusiclooper y genera videos
   con imagen fija listos para subir a YouTube.
 
 ${COLORS[CYAN]}USO:${COLORS[RESET}
-  audioloop <input> <minutos> [imagen_portada] [output] [opciones]
+  loopforge <input> <minutos> [imagen_portada] [output] [opciones]
 
 ${COLORS[CYAN]}ENTRADAS SOPORTADAS:${COLORS[RESET}
   archivo.mp3          Audio individual
@@ -113,11 +113,11 @@ ${COLORS[CYAN]}ENTRADAS SOPORTADAS:${COLORS[RESET}
   https://youtube.com  URL de video o playlist
 
 ${COLORS[CYAN]}EJEMPLOS:${COLORS[RESET}
-  audioloop cancion.mp3 60 cover.jpg
-  audioloop ./musica 180 cover.jpg
-  audioloop album.zip 30 cover.jpg
-  audioloop "https://youtube.com/playlist?list=XXX" 60
-  audioloop a.mp3 60 cover.jpg , b.mp3 30 cover2.jpg
+  loopforge cancion.mp3 60 cover.jpg
+  loopforge ./musica 180 cover.jpg
+  loopforge album.zip 30 cover.jpg
+  loopforge "https://youtube.com/playlist?list=XXX" 60
+  loopforge a.mp3 60 cover.jpg , b.mp3 30 cover2.jpg
 
 ${COLORS[CYAN]}OPCIONES:${COLORS[RESET}
   -tester        Procesa solo el primer archivo (prueba rápida)
@@ -139,7 +139,7 @@ EOF
 }
 
 show_version() {
-    echo "audioloop v${VERSION}"
+    echo "loopforge v${VERSION}"
     exit 0
 }
 
@@ -204,7 +204,7 @@ detect_system_resources() {
 
 cleanup_tmp() {
     progress "Limpiando temporales antiguos..."
-    rm -rf /tmp/videolooper.* /tmp/audioloop.* 2>/dev/null
+    rm -rf /tmp/videolooper.* /tmp/loopforge.* 2>/dev/null
 }
 
 # ============================================================================
@@ -389,7 +389,7 @@ process_audio() {
     local input="$1" target_secs="$2" output="$3"
     local temp_dir temp_wav
 
-    temp_dir=$(mktemp -d /tmp/audioloop.XXXXXX 2>/dev/null || mktemp -d -t audioloop.XXXXXX)
+    temp_dir=$(mktemp -d /tmp/loopforge.XXXXXX 2>/dev/null || mktemp -d -t loopforge.XXXXXX)
     temp_wav="${temp_dir}/audio.wav"
 
     # Convertir a WAV para análisis
@@ -543,7 +543,7 @@ process_file() {
 
     # Archivo temporal para el audio extendido
     local tmp_audio_dir
-    tmp_audio_dir=$(mktemp -d /tmp/audioloop.XXXXXX 2>/dev/null || mktemp -d -t audioloop.XXXXXX)
+    tmp_audio_dir=$(mktemp -d /tmp/loopforge.XXXXXX 2>/dev/null || mktemp -d -t loopforge.XXXXXX)
     extended_file="${tmp_audio_dir}/${cleaned}_extended.mp3"
 
     progress "[$index/$total] Procesando: $relative_path"
@@ -656,7 +656,7 @@ process_url() {
     local url="$1" target_secs="$2" cover_image="$3"
     local temp_dir output_dir extended_dir
 
-    temp_dir=$(mktemp -d /tmp/audioloop.XXXXXX 2>/dev/null || mktemp -d -t audioloop.XXXXXX)
+    temp_dir=$(mktemp -d /tmp/loopforge.XXXXXX 2>/dev/null || mktemp -d -t loopforge.XXXXXX)
 
     # Obtener título de la playlist
     local playlist_title
@@ -795,7 +795,7 @@ process_group() {
         [ ! -f "$cover_image" ] && error "Imagen no encontrada: ${args[2]}"
     else
         if [[ "$input" == http* ]]; then
-            temp_cover_dir=$(mktemp -d /tmp/audioloop.XXXXXX 2>/dev/null || mktemp -d -t audioloop.XXXXXX)
+            temp_cover_dir=$(mktemp -d /tmp/loopforge.XXXXXX 2>/dev/null || mktemp -d -t loopforge.XXXXXX)
             cover_image=$(get_default_cover "$input" "$temp_cover_dir")
         else
             error "Se requiere imagen de portada para entradas locales."
