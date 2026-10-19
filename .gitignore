@@ -1,0 +1,16 @@
+# Archivos temporales
+*.mp4
+*.mp3
+*.wav
+*.flac
+*.log
+reporte.txt
+
+# Directorios de salida
+*_extended/
+*_tester/
+videos/
+
+# Sistema
+.DS_Store
+Thumbs.db
